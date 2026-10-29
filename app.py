@@ -20,6 +20,27 @@ import streamlit as st
 # Streamlit Community Cloud).
 DATA_PATH = Path(__file__).parent / "biscayneBay_waterquality.csv"
 
+# Water-quality measurements a user can plot, mapped to readable labels with
+# units. Most of the CSV's 69 columns are vehicle telemetry (battery, fins,
+# GPS), so the parameter dropdown only offers these.
+WATER_QUALITY_PARAMS = {
+    "Temp C": "Water Temperature (°C)",
+    "Salinity (ppt)": "Salinity (ppt)",
+    "SpCond mS/cm": "Specific Conductance (mS/cm)",
+    "pH": "pH",
+    "ODO mg/L": "Dissolved Oxygen (mg/L)",
+    "ODOsat %": "Dissolved Oxygen Saturation (%)",
+    "Turbid+ NTU": "Turbidity (NTU)",
+    "Chl ug/L": "Chlorophyll (µg/L)",
+    "BGA-PC cells/mL": "Blue-Green Algae (cells/mL)",
+    "Total Water Column (m)": "Water Depth (m)",
+}
+
+
+def label(column: str) -> str:
+    """Return the readable label for a column, or the column name itself."""
+    return WATER_QUALITY_PARAMS.get(column, column)
+
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -39,6 +60,18 @@ def get_data(uploaded_file) -> pd.DataFrame:
     if uploaded_file is not None:
         return load_data(uploaded_file)
     return load_data(DATA_PATH)
+
+
+def get_plottable_params(df: pd.DataFrame) -> list[str]:
+    """Return the water-quality columns worth plotting.
+
+    A column qualifies if it is in the dataset, is numeric, and has more than
+    one distinct value (a constant column would just be a flat line).
+    """
+    return [col for col in WATER_QUALITY_PARAMS
+            if col in df.columns
+            and pd.api.types.is_numeric_dtype(df[col])
+            and df[col].nunique() > 1]
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +104,11 @@ def render_data_tab(df: pd.DataFrame) -> None:
 def render_charts_tab(df: pd.DataFrame) -> None:
     """Show the line chart, scatter plot and 3D bay-floor plot."""
     st.subheader("Line Chart")
-    parameter = st.selectbox("Select a parameter", options=df.columns.tolist())
-    fig1 = px.line(df, x="Time", y=parameter, title=f"{parameter} over Time")
+    # The y axis follows whichever parameter the user picks.
+    parameter = st.selectbox("Select a parameter",
+                             options=get_plottable_params(df),
+                             format_func=label)
+    fig1 = px.line(df, x="Time", y=parameter, title=f"{label(parameter)} over Time")
     st.plotly_chart(fig1)
 
     fig2 = px.scatter(df,
