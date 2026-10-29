@@ -168,20 +168,20 @@ def get_plottable_params(df: pd.DataFrame) -> list[str]:
 
 def render_header() -> None:
     """Show the app title and course information."""
-    st.title("Water Quality Dashboard")
-    st.header("CIS 3590 - Internship-Ready Software Development")
-    st.subheader("Prof. Gregory Reis")
+    st.title("🌊 Biscayne Bay Water Quality Dashboard")
+    st.caption("CIS 3590 – Internship-Ready Software Development · Prof. Gregory Reis")
     st.divider()
 
 
 def render_sidebar():
     """Show the sidebar controls.
 
-    Returns the uploaded file (or None) and whether to hide negative readings.
+    Returns a container for the time filter (filled in once the data is
+    loaded, but shown first), the uploaded file (or None), and whether to hide
+    negative readings.
     """
-    st.sidebar.header("File Upload")
-    st.sidebar.info("Upload a CSV file with water quality data")
-    uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
+    st.sidebar.title("Controls")
+    time_filter_slot = st.sidebar.container()
 
     st.sidebar.header("Data Quality")
     hide_negative = st.sidebar.checkbox(
@@ -189,14 +189,21 @@ def render_sidebar():
         value=True,
         help="Turbidity, chlorophyll and blue-green algae can't be below zero. "
              "Negative values come from sensor calibration offsets.")
-    return uploaded_file, hide_negative
+
+    st.sidebar.header("Your Own Data")
+    with st.sidebar.expander("Upload a CSV file"):
+        st.caption("The file needs the same columns as the original survey file, "
+                   f"including: {', '.join(REQUIRED_COLUMNS)}.")
+        uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"],
+                                         label_visibility="collapsed")
+    return time_filter_slot, uploaded_file, hide_negative
 
 
-def render_time_filter(df: pd.DataFrame) -> tuple[float, float]:
-    """Show a sidebar slider for choosing part of the survey; return its range."""
+def render_time_filter(df: pd.DataFrame, slot) -> tuple[float, float]:
+    """Show a slider for choosing part of the survey; return its range."""
     end = float(df["Elapsed (min)"].max())
-    st.sidebar.header("Time Range")
-    return st.sidebar.slider("Minutes since start of survey",
+    slot.header("Time Range")
+    return slot.slider("Minutes since start of survey",
                              min_value=0.0,
                              max_value=end,
                              value=(0.0, end),
@@ -265,7 +272,7 @@ def render_overview_tab(df: pd.DataFrame) -> None:
         "- **Sidebar → Upload:** load your own CSV in the same format as the original survey file.\n"
         "- **Data:** pick which columns to view and see summary statistics.\n"
         "- **Charts:** plot any water-quality parameter over time and compare temperature, salinity and depth.\n"
-        "- **Maps:** see the vehicle's route on a map, colored by water temperature. Hover a point for details.\n"
+        "- **Map:** see the vehicle's route on a map, colored by water temperature. Hover a point for details.\n"
         "- **Insights:** read the main takeaways from the data.")
 
 
@@ -324,12 +331,16 @@ def build_line_chart(df: pd.DataFrame, parameter: str):
 
 def render_charts_tab(df: pd.DataFrame) -> None:
     """Show the line chart, scatter plot and 3D bay-floor plot."""
-    st.subheader("Line Chart")
+    st.subheader("A parameter over time")
+    st.caption("Pick a measurement to see how it changed during the survey. The thick "
+               "line smooths out second-to-second noise so the trend is easier to see.")
     # The y axis follows whichever parameter the user picks.
     parameter = st.selectbox("Select a parameter",
                              options=get_plottable_params(df),
                              format_func=label)
     st.plotly_chart(build_line_chart(df, parameter))
+
+    left, right = st.columns(2)
 
     # "Temp C" comes from the water-quality sonde. The CSV's other temperature
     # columns ("Temperature (c)", "DVL-Temperature") come from the vehicle's
@@ -342,7 +353,11 @@ def render_charts_tab(df: pd.DataFrame) -> None:
                       labels={col: label(col) for col in
                               ["Temp C", "Salinity (ppt)", "Total Water Column (m)"]},
                       color_continuous_scale="viridis")
-    st.plotly_chart(fig2)
+    with left:
+        st.subheader("Temperature vs. salinity")
+        st.caption("Each dot is one reading. Color shows how deep the water was, so you "
+                   "can see whether deeper water was warmer or saltier.")
+        st.plotly_chart(fig2)
 
     fig3 = px.scatter_3d(df,
                          x="Longitude",
@@ -358,12 +373,19 @@ def render_charts_tab(df: pd.DataFrame) -> None:
     # Depth increases downward, so flip the z axis to look like a sea floor.
     fig3.update_scenes(zaxis_autorange="reversed")
     fig3.update_traces(marker_size=3)
-    st.plotly_chart(fig3)
+    with right:
+        st.subheader("The bay floor in 3D")
+        st.caption("The vehicle's route with water depth as height. Drag to rotate; "
+                   "use the toolbar to zoom.")
+        # Scroll-to-zoom is off so scrolling the page doesn't get stuck on the plot.
+        st.plotly_chart(fig3, config={"scrollZoom": False})
 
 
 def render_map_tab(df: pd.DataFrame) -> None:
     """Show the vehicle's survey track on a map."""
-    st.subheader("Maps")
+    st.subheader("Survey route")
+    st.caption("Each dot is one reading, colored by water temperature. "
+               "Hover over a dot to see its salinity and depth.")
     first_map = px.scatter_map(df,
                                lat="Latitude",
                                lon="Longitude",
@@ -408,7 +430,8 @@ def build_salinity_by_depth_chart(df: pd.DataFrame):
                  title="Salinity by Water Depth",
                  labels={"Depth band": "Water depth", "Salinity (ppt)": label("Salinity (ppt)")})
     fig.add_hline(y=OPEN_OCEAN_SALINITY_PPT, line_dash="dash",
-                  annotation_text=f"Typical open ocean ({OPEN_OCEAN_SALINITY_PPT} ppt)")
+                  annotation_text=f"Typical open ocean ({OPEN_OCEAN_SALINITY_PPT} ppt)",
+                  annotation_position="bottom left")
     return fig
 
 
@@ -496,8 +519,13 @@ def render_insights_tab(df: pd.DataFrame, negative_counts: dict[str, int]) -> No
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    # Must be the first Streamlit call: sets the browser tab title, icon and a
+    # wide layout so charts can sit side by side.
+    st.set_page_config(page_title="Biscayne Bay Water Quality",
+                       page_icon="🌊",
+                       layout="wide")
     render_header()
-    uploaded_file, hide_negative = render_sidebar()
+    time_filter_slot, uploaded_file, hide_negative = render_sidebar()
     df = get_data(uploaded_file)
 
     negative_counts = count_negative_readings(df)
@@ -505,14 +533,14 @@ def main() -> None:
         df = hide_negative_readings(df)
     render_data_quality(negative_counts, hide_negative)
 
-    start, end = render_time_filter(df)
+    start, end = render_time_filter(df, time_filter_slot)
     df = filter_by_time(df, start, end)
     if len(df) < 2:
         st.warning("The selected time range has too few readings to plot. Widen it in the sidebar.")
         return
 
     overview, tables, plots, maps, insights = st.tabs(
-        ["Overview", "Data", "Charts", "Maps", "Insights"])
+        ["Overview", "Data", "Charts", "Map", "Insights"])
     with overview:
         render_overview_tab(df)
     with tables:
