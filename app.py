@@ -265,7 +265,8 @@ def render_overview_tab(df: pd.DataFrame) -> None:
         "- **Sidebar → Upload:** load your own CSV in the same format as the original survey file.\n"
         "- **Data:** pick which columns to view and see summary statistics.\n"
         "- **Charts:** plot any water-quality parameter over time and compare temperature, salinity and depth.\n"
-        "- **Maps:** see the vehicle's route on a map, colored by water temperature. Hover a point for details.")
+        "- **Maps:** see the vehicle's route on a map, colored by water temperature. Hover a point for details.\n"
+        "- **Insights:** read the main takeaways from the data.")
 
 
 def render_data_tab(df: pd.DataFrame) -> None:
@@ -379,6 +380,117 @@ def render_map_tab(df: pd.DataFrame) -> None:
     st.plotly_chart(first_map)
 
 
+# Reference values used to put the measurements in context.
+OPEN_OCEAN_SALINITY_PPT = 35  # typical salinity of open seawater
+LOW_OXYGEN_MG_L = 4  # common threshold below which marine life becomes stressed
+
+# Depth bands for comparing shallow and deeper water, as (label, low, high) in meters.
+DEPTH_BANDS = [("Shallow (< 2 m)", 0, 2), ("Medium (2–3 m)", 2, 3), ("Deep (> 3 m)", 3, float("inf"))]
+
+
+def add_depth_band(df: pd.DataFrame) -> pd.DataFrame:
+    """Label each reading with the depth band it falls in."""
+    df = df.copy()
+    edges = [low for _, low, _ in DEPTH_BANDS] + [DEPTH_BANDS[-1][2]]
+    df["Depth band"] = pd.cut(df["Total Water Column (m)"], bins=edges,
+                              labels=[name for name, _, _ in DEPTH_BANDS])
+    return df
+
+
+def build_salinity_by_depth_chart(df: pd.DataFrame):
+    """Box plot comparing salinity across depth bands."""
+    band_names = [name for name, _, _ in DEPTH_BANDS]
+    fig = px.box(add_depth_band(df),
+                 x="Depth band",
+                 y="Salinity (ppt)",
+                 color="Depth band",
+                 category_orders={"Depth band": band_names},
+                 title="Salinity by Water Depth",
+                 labels={"Depth band": "Water depth", "Salinity (ppt)": label("Salinity (ppt)")})
+    fig.add_hline(y=OPEN_OCEAN_SALINITY_PPT, line_dash="dash",
+                  annotation_text=f"Typical open ocean ({OPEN_OCEAN_SALINITY_PPT} ppt)")
+    return fig
+
+
+def compare(value: float, reference: float, tolerance: float, above: str, below: str, near: str) -> str:
+    """Describe a value as above, below or near a reference."""
+    if value > reference + tolerance:
+        return above
+    if value < reference - tolerance:
+        return below
+    return near
+
+
+def render_insights_tab(df: pd.DataFrame, negative_counts: dict[str, int]) -> None:
+    """Show the main takeaways, each backed by a number or a chart."""
+    st.caption("Findings are calculated from the time range selected in the sidebar.")
+
+    # 1. Temperature
+    temp = df["Temp C"]
+    st.subheader("1. Water temperature was very stable" if temp.max() - temp.min() < 1
+                 else "1. Water temperature varied along the route")
+    left, right = st.columns([3, 1])
+    left.markdown(
+        f"Water temperature stayed between **{temp.min():.2f} °C** and **{temp.max():.2f} °C**, "
+        f"a spread of just **{temp.max() - temp.min():.2f} °C**. The short spikes on the "
+        "Charts tab are small changes as the vehicle passed through slightly warmer patches of water.")
+    right.metric("Temperature spread", f"{temp.max() - temp.min():.2f} °C")
+
+    # 2. Salinity
+    salinity = df["Salinity (ppt)"]
+    level = compare(salinity.mean(), OPEN_OCEAN_SALINITY_PPT, 0.5,
+                    "saltier than", "fresher than", "about the same as")
+    st.subheader(f"2. The water was {level} the open ocean")
+    banded = add_depth_band(df).groupby("Depth band", observed=True)["Salinity (ppt)"].mean()
+    left, right = st.columns([3, 1])
+    text = (f"Average salinity was **{salinity.mean():.1f} ppt**, {level} the roughly "
+            f"{OPEN_OCEAN_SALINITY_PPT} ppt of open seawater.")
+    if level == "saltier than":
+        text += (" Shallow, enclosed bays can become saltier than the ocean when evaporation "
+                 "outpaces freshwater inflow, as in South Florida's dry season.")
+    if len(banded) > 1:
+        shallowest, deepest = banded.index[0], banded.index[-1]
+        direction = "lower" if banded.iloc[0] < banded.iloc[-1] else "higher"
+        text += (f" Salinity was {direction} in the **{shallowest.lower()}** band "
+                 f"({banded.iloc[0]:.1f} ppt) than in the **{deepest.lower()}** band "
+                 f"({banded.iloc[-1]:.1f} ppt).")
+    left.markdown(text)
+    right.metric("Avg. salinity", f"{salinity.mean():.1f} ppt",
+                 delta=f"{salinity.mean() - OPEN_OCEAN_SALINITY_PPT:+.1f} vs. ocean",
+                 delta_color="off")
+    st.plotly_chart(build_salinity_by_depth_chart(df))
+
+    # 3. Dissolved oxygen
+    if "ODO mg/L" in df.columns and df["ODO mg/L"].notna().any():
+        oxygen = df["ODO mg/L"]
+        healthy = oxygen.min() >= LOW_OXYGEN_MG_L
+        st.subheader("3. Dissolved oxygen stayed at healthy levels" if healthy
+                     else "3. Dissolved oxygen dipped to stressful levels")
+        left, right = st.columns([3, 1])
+        if healthy:
+            detail = f"It never dropped below {LOW_OXYGEN_MG_L} mg/L"
+        else:
+            share = (oxygen < LOW_OXYGEN_MG_L).mean()
+            detail = f"{share:.0%} of readings were below {LOW_OXYGEN_MG_L} mg/L"
+        left.markdown(
+            f"Dissolved oxygen ranged from **{oxygen.min():.2f}** to **{oxygen.max():.2f} mg/L**. "
+            f"{detail}, a level commonly used as the point where fish and other marine life "
+            "start to become stressed.")
+        right.metric("Lowest dissolved oxygen", f"{oxygen.min():.2f} mg/L")
+
+    # 4. Data quality
+    if negative_counts:
+        st.subheader("4. Some sensors need recalibration")
+        worst = max(negative_counts, key=negative_counts.get)
+        left, right = st.columns([3, 1])
+        left.markdown(
+            f"The turbidity, chlorophyll and blue-green algae sensors reported negative values, "
+            f"which can't happen in real water. The worst was **{label(worst)}**, which was "
+            f"negative in {negative_counts[worst]:,} readings. Conclusions about water "
+            "clarity and algae shouldn't be drawn from this survey.")
+        right.metric("Negative readings", f"{sum(negative_counts.values()):,}")
+
+
 # ---------------------------------------------------------------------------
 # App entry point
 # ---------------------------------------------------------------------------
@@ -399,7 +511,8 @@ def main() -> None:
         st.warning("The selected time range has too few readings to plot. Widen it in the sidebar.")
         return
 
-    overview, tables, plots, maps = st.tabs(["Overview", "Data", "Charts", "Maps"])
+    overview, tables, plots, maps, insights = st.tabs(
+        ["Overview", "Data", "Charts", "Maps", "Insights"])
     with overview:
         render_overview_tab(df)
     with tables:
@@ -408,6 +521,8 @@ def main() -> None:
         render_charts_tab(df)
     with maps:
         render_map_tab(df)
+    with insights:
+        render_insights_tab(df, negative_counts)
 
 
 main()
