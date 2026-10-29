@@ -94,11 +94,28 @@ def render_sidebar():
 
 
 def render_data_tab(df: pd.DataFrame) -> None:
-    """Show the raw data table and descriptive statistics."""
-    st.dataframe(df)
-    st.caption("Raw Data")
-    st.dataframe(df.describe())
-    st.caption("Descriptive Statistics")
+    """Show the raw data table and descriptive statistics for chosen columns."""
+    # Start with position, time and the water-quality readings; the user can
+    # add any of the vehicle telemetry columns too.
+    default_columns = [col for col in ["Time", "Latitude", "Longitude"]
+                       if col in df.columns] + get_plottable_params(df)
+    columns = st.multiselect("Columns to display",
+                             options=df.columns.tolist(),
+                             default=default_columns)
+    if not columns:
+        st.info("Select at least one column to display.")
+        return
+
+    selected = df[columns]
+    st.dataframe(selected)
+    st.caption(f"Raw Data ({len(selected):,} rows × {len(columns)} columns)")
+
+    numeric = selected.select_dtypes("number")
+    if numeric.empty:
+        st.info("None of the selected columns are numeric, so there are no statistics to show.")
+    else:
+        st.dataframe(numeric.describe())
+        st.caption("Descriptive Statistics")
 
 
 def render_charts_tab(df: pd.DataFrame) -> None:
