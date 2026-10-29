@@ -25,7 +25,7 @@ Each story uses the format *As a … I want … so that …* and has acceptance 
 | S1-3 | As a user, I want every chart to have a clear title, axis labels with units, and a legend so that I can read it correctly. | All Plotly charts have a title, readable axis labels and a legend or color bar. | ⬜ |
 | S1-4 | As a user, I want the app to warn me about bad sensor data so that I don't draw wrong conclusions. | Negative turbidity, chlorophyll and algae values and the 9999.99 placeholders are handled or flagged in the UI. | ⬜ |
 | S1-5 | As a user, I want an uploaded CSV with different columns to show a helpful message instead of crashing. | Uploading a file without the required columns shows an error message, and the app keeps working. | ⬜ |
-| S1-6 | As a developer, I want the code split into functions with comments so that it's easy to extend in Project 2. | Data loading, filtering, charts and page sections are separate functions, and the CSV loads via a path relative to `app.py` with caching. | ⬜ |
+| S1-6 | As a developer, I want the code split into functions with comments so that it's easy to extend in Project 2. | Data loading, filtering, charts and page sections are separate functions, and the CSV loads via a path relative to `app.py` with caching. | ✅ |
 
 ## Sprint 2 – Make it polished
 
