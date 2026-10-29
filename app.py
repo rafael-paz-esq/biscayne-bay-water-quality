@@ -191,6 +191,24 @@ def render_sidebar():
     return uploaded_file, hide_negative
 
 
+def render_time_filter(df: pd.DataFrame) -> tuple[float, float]:
+    """Show a sidebar slider for choosing part of the survey; return its range."""
+    end = float(df["Elapsed (min)"].max())
+    st.sidebar.header("Time Range")
+    return st.sidebar.slider("Minutes since start of survey",
+                             min_value=0.0,
+                             max_value=end,
+                             value=(0.0, end),
+                             step=0.5,
+                             help="Every table, chart and map uses only the "
+                                  "readings inside this range.")
+
+
+def filter_by_time(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame:
+    """Keep only the readings between start and end minutes (inclusive)."""
+    return df[df["Elapsed (min)"].between(start, end)]
+
+
 def render_data_quality(negative_counts: dict[str, int], hidden: bool) -> None:
     """Warn the user about negative sensor readings and how they're handled."""
     if not negative_counts:
@@ -327,6 +345,12 @@ def main() -> None:
     if hide_negative:
         df = hide_negative_readings(df)
     render_data_quality(negative_counts, hide_negative)
+
+    start, end = render_time_filter(df)
+    df = filter_by_time(df, start, end)
+    if len(df) < 2:
+        st.warning("The selected time range has too few readings to plot. Widen it in the sidebar.")
+        return
 
     tables, plots, maps = st.tabs(["Data", "Charts", "Maps"])
     with tables:

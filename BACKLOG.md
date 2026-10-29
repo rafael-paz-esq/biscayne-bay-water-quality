@@ -33,7 +33,7 @@ Each story uses the format *As a … I want … so that …* and has acceptance 
 |---|---|---|---|
 | S2-1 | As a first-time user, I want an Overview section so that I know what the data is and how to use the app. | Overview explains the survey, the location and the controls, and shows key metrics. | ⬜ |
 | S2-2 | As a user, I want an Insights section so that I can see the main takeaways without analyzing the data myself. | At least 3 written findings, each backed by a chart or number. | ⬜ |
-| S2-3 | As a user, I want to filter the data by time range so that I can zoom in on part of the survey. | A sidebar slider filters every table and chart. | ⬜ |
+| S2-3 | As a user, I want to filter the data by time range so that I can zoom in on part of the survey. | A sidebar slider filters every table and chart. | ✅ |
 | S2-4 | As a user, I want a clean, consistent layout so that the app is easy to navigate. | Page config set (title, icon, wide layout), controls in the sidebar, consistent headings, no clutter. | ⬜ |
 
 ## Sprint 3 – Ship it
