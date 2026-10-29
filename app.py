@@ -248,8 +248,11 @@ def build_line_chart(df: pd.DataFrame, parameter: str):
                   title=f"{label(parameter)} over Time",
                   labels={"Elapsed (min)": "Time since start of survey (minutes)",
                           parameter: label(parameter)},
-                  color_discrete_map={"Raw reading": "#9DB8D9",
-                                      "30-second average": "#1F4E8C"})
+                  color_discrete_map={"Raw reading": "#9AA5B1",
+                                      "30-second average": "#2E86DE"})
+    # Keep the raw readings faint so the trend line stands out in light and dark themes.
+    fig.update_traces(line_width=1, opacity=0.6, selector={"name": "Raw reading"})
+    fig.update_traces(line_width=3, selector={"name": "30-second average"})
     return fig
 
 
