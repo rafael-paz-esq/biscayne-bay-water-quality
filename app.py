@@ -55,11 +55,31 @@ def load_data(source) -> pd.DataFrame:
     return pd.read_csv(source)
 
 
+def add_elapsed_time(df: pd.DataFrame) -> pd.DataFrame:
+    """Add an "Elapsed (min)" column measured from the first reading.
+
+    The CSV's "Time" column is text in minutes:seconds form (e.g. "43:39.1"),
+    which Plotly would treat as categories rather than a time axis. Converting
+    it to minutes since the start gives charts a real, evenly scaled x axis.
+    """
+    parts = df["Time"].astype(str).str.split(":", n=1, expand=True)
+    seconds = pd.to_numeric(parts[0], errors="coerce") * 60 + pd.to_numeric(parts[1], errors="coerce")
+    # The clock only shows minutes and seconds, so it wraps back to 00:00 every
+    # hour. Adding 3600 s to any backwards step keeps the timeline increasing.
+    steps = seconds.diff().fillna(0)
+    steps[steps < 0] += 3600
+    df = df.copy()
+    df["Elapsed (min)"] = steps.cumsum() / 60
+    return df
+
+
 def get_data(uploaded_file) -> pd.DataFrame:
     """Return the uploaded dataset if there is one, otherwise the default CSV."""
     if uploaded_file is not None:
-        return load_data(uploaded_file)
-    return load_data(DATA_PATH)
+        df = load_data(uploaded_file)
+    else:
+        df = load_data(DATA_PATH)
+    return add_elapsed_time(df)
 
 
 def get_plottable_params(df: pd.DataFrame) -> list[str]:
@@ -97,7 +117,7 @@ def render_data_tab(df: pd.DataFrame) -> None:
     """Show the raw data table and descriptive statistics for chosen columns."""
     # Start with position, time and the water-quality readings; the user can
     # add any of the vehicle telemetry columns too.
-    default_columns = [col for col in ["Time", "Latitude", "Longitude"]
+    default_columns = [col for col in ["Time", "Elapsed (min)", "Latitude", "Longitude"]
                        if col in df.columns] + get_plottable_params(df)
     columns = st.multiselect("Columns to display",
                              options=df.columns.tolist(),
@@ -118,6 +138,31 @@ def render_data_tab(df: pd.DataFrame) -> None:
         st.caption("Descriptive Statistics")
 
 
+def build_line_chart(df: pd.DataFrame, parameter: str):
+    """Plot a parameter over time, with a rolling average to show the trend.
+
+    The raw 1-second readings are noisy, so a 30-second rolling average is
+    drawn alongside them. The two lines share the chart and appear in the
+    legend as "Raw reading" and "30-second average".
+    """
+    series = pd.DataFrame({
+        "Elapsed (min)": df["Elapsed (min)"],
+        "Raw reading": df[parameter],
+        "30-second average": df[parameter].rolling(30, center=True, min_periods=1).mean(),
+    })
+    long = series.melt(id_vars="Elapsed (min)", var_name="Series", value_name=parameter)
+    fig = px.line(long,
+                  x="Elapsed (min)",
+                  y=parameter,
+                  color="Series",
+                  title=f"{label(parameter)} over Time",
+                  labels={"Elapsed (min)": "Time since start of survey (minutes)",
+                          parameter: label(parameter)},
+                  color_discrete_map={"Raw reading": "#9DB8D9",
+                                      "30-second average": "#1F4E8C"})
+    return fig
+
+
 def render_charts_tab(df: pd.DataFrame) -> None:
     """Show the line chart, scatter plot and 3D bay-floor plot."""
     st.subheader("Line Chart")
@@ -125,21 +170,32 @@ def render_charts_tab(df: pd.DataFrame) -> None:
     parameter = st.selectbox("Select a parameter",
                              options=get_plottable_params(df),
                              format_func=label)
-    fig1 = px.line(df, x="Time", y=parameter, title=f"{label(parameter)} over Time")
-    st.plotly_chart(fig1)
+    st.plotly_chart(build_line_chart(df, parameter))
 
+    # "Temp C" comes from the water-quality sonde. The CSV's other temperature
+    # columns ("Temperature (c)", "DVL-Temperature") come from the vehicle's
+    # navigation sensor and read about 2-4 °C warmer, so they aren't used here.
     fig2 = px.scatter(df,
-                      x="Temperature (c)",
+                      x="Temp C",
                       y="Salinity (ppt)",
-                      title="Temperature vs Salinity")
+                      color="Total Water Column (m)",
+                      title="Water Temperature vs Salinity",
+                      labels={col: label(col) for col in
+                              ["Temp C", "Salinity (ppt)", "Total Water Column (m)"]},
+                      color_continuous_scale="viridis")
     st.plotly_chart(fig2)
 
     fig3 = px.scatter_3d(df,
                          x="Longitude",
                          y="Latitude",
                          z="Total Water Column (m)",
-                         color="Temperature (c)",
-                         title="3D Visualization of the Bay Floor")
+                         color="Temp C",
+                         title="3D Visualization of the Bay Floor",
+                         labels={"Longitude": "Longitude (°)",
+                                 "Latitude": "Latitude (°)",
+                                 "Total Water Column (m)": label("Total Water Column (m)"),
+                                 "Temp C": label("Temp C")},
+                         color_continuous_scale="viridis")
     # Depth increases downward, so flip the z axis to look like a sea floor.
     fig3.update_scenes(zaxis_autorange="reversed")
     fig3.update_traces(marker_size=3)
@@ -152,10 +208,15 @@ def render_map_tab(df: pd.DataFrame) -> None:
     first_map = px.scatter_map(df,
                                lat="Latitude",
                                lon="Longitude",
-                               title="Vehicle Track on a Map",
-                               center={"lat": 25.9121, "lon": -80.1371},
+                               title="Survey Track Colored by Water Temperature",
+                               # Center on the data so uploaded surveys elsewhere still show up.
+                               center={"lat": df["Latitude"].mean(),
+                                       "lon": df["Longitude"].mean()},
                                zoom=16,
-                               color="Temperature (c)",
+                               color="Temp C",
+                               labels={"Temp C": label("Temp C")},
+                               hover_data={"Salinity (ppt)": True,
+                                           "Total Water Column (m)": True},
                                color_continuous_scale="viridis")
     st.plotly_chart(first_map)
 
