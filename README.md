@@ -3,7 +3,7 @@
 An interactive Streamlit app for exploring water-quality data collected by an autonomous survey vehicle in Biscayne Bay, Florida.
 
 - **Live app:** _TODO – Streamlit Community Cloud URL_
-- **Repository:** _TODO – GitHub URL_
+- **Repository:** https://github.com/rafael-paz-esq/biscayne-bay-water-quality
 
 Built for CIS 3590 – Internship-Ready Software Development (Prof. Gregory Reis).
 
