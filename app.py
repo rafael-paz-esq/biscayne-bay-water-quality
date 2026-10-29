@@ -37,6 +37,14 @@ WATER_QUALITY_PARAMS = {
 }
 
 
+# Sensors write this value when they have no reading (e.g. "DVL-Depth (m)").
+PLACEHOLDER_VALUE = 9999.99
+
+# Concentrations that can't physically be below zero. Negative readings here
+# come from sensor calibration offsets, not from the water.
+NON_NEGATIVE_PARAMS = ["Turbid+ NTU", "Chl ug/L", "BGA-PC cells/mL"]
+
+
 def label(column: str) -> str:
     """Return the readable label for a column, or the column name itself."""
     return WATER_QUALITY_PARAMS.get(column, column)
@@ -73,13 +81,44 @@ def add_elapsed_time(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Fix formatting problems that are never real data.
+
+    - Trims stray spaces from column names (e.g. "Date m/d/y   ").
+    - Drops columns with no values at all.
+    - Replaces the 9999.99 "no reading" placeholder with a blank (NaN).
+    """
+    df = df.copy()
+    df.columns = df.columns.str.strip()
+    df = df.dropna(axis="columns", how="all")
+    numeric = df.select_dtypes("number").columns
+    df[numeric] = df[numeric].mask(df[numeric] == PLACEHOLDER_VALUE)
+    return df
+
+
+def count_negative_readings(df: pd.DataFrame) -> dict[str, int]:
+    """Count the physically impossible (negative) readings in each column."""
+    counts = {col: int((df[col] < 0).sum())
+              for col in NON_NEGATIVE_PARAMS if col in df.columns}
+    return {col: n for col, n in counts.items() if n > 0}
+
+
+def hide_negative_readings(df: pd.DataFrame) -> pd.DataFrame:
+    """Blank out negative readings so they don't appear in charts or stats."""
+    df = df.copy()
+    for col in NON_NEGATIVE_PARAMS:
+        if col in df.columns:
+            df[col] = df[col].mask(df[col] < 0)
+    return df
+
+
 def get_data(uploaded_file) -> pd.DataFrame:
     """Return the uploaded dataset if there is one, otherwise the default CSV."""
     if uploaded_file is not None:
         df = load_data(uploaded_file)
     else:
         df = load_data(DATA_PATH)
-    return add_elapsed_time(df)
+    return add_elapsed_time(clean_data(df))
 
 
 def get_plottable_params(df: pd.DataFrame) -> list[str]:
@@ -107,10 +146,33 @@ def render_header() -> None:
 
 
 def render_sidebar():
-    """Show the sidebar controls and return the uploaded file (or None)."""
+    """Show the sidebar controls.
+
+    Returns the uploaded file (or None) and whether to hide negative readings.
+    """
     st.sidebar.header("File Upload")
     st.sidebar.info("Upload a CSV file with water quality data")
-    return st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
+    uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
+
+    st.sidebar.header("Data Quality")
+    hide_negative = st.sidebar.checkbox(
+        "Hide impossible negative readings",
+        value=True,
+        help="Turbidity, chlorophyll and blue-green algae can't be below zero. "
+             "Negative values come from sensor calibration offsets.")
+    return uploaded_file, hide_negative
+
+
+def render_data_quality(negative_counts: dict[str, int], hidden: bool) -> None:
+    """Warn the user about negative sensor readings and how they're handled."""
+    if not negative_counts:
+        return
+    details = ", ".join(f"{label(col)}: {n:,}" for col, n in negative_counts.items())
+    action = ("They are hidden from the table, statistics and charts."
+              if hidden else
+              "They are currently included. Treat these parameters with caution.")
+    st.warning(f"**Negative sensor readings found** ({details}). "
+               f"These values are physically impossible. {action}")
 
 
 def render_data_tab(df: pd.DataFrame) -> None:
@@ -227,8 +289,13 @@ def render_map_tab(df: pd.DataFrame) -> None:
 
 def main() -> None:
     render_header()
-    uploaded_file = render_sidebar()
+    uploaded_file, hide_negative = render_sidebar()
     df = get_data(uploaded_file)
+
+    negative_counts = count_negative_readings(df)
+    if hide_negative:
+        df = hide_negative_readings(df)
+    render_data_quality(negative_counts, hide_negative)
 
     tables, plots, maps = st.tabs(["Data", "Charts", "Maps"])
     with tables:
