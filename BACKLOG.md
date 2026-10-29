@@ -41,5 +41,5 @@ Each story uses the format *As a … I want … so that …* and has acceptance 
 | ID | Story | Acceptance criteria | Status |
 |---|---|---|---|
 | S3-1 | As a grader, I want the app at a public URL so that I can use it without installing anything. | The app is deployed on Streamlit Community Cloud and loads without errors. | ⬜ |
-| S3-2 | As a grader, I want complete documentation so that I can evaluate the project. | README is complete with live URL, repo URL and usage instructions. | ⬜ |
-| S3-3 | As a team, I want a retrospective so that we improve the process for Project 2. | README has a Retrospective section. | ⬜ |
+| S3-2 | As a grader, I want complete documentation so that I can evaluate the project. | README is complete with live URL, repo URL and usage instructions. | ✅ |
+| S3-3 | As a team, I want a retrospective so that we improve the process for Project 2. | README has a Retrospective section. | ✅ |
