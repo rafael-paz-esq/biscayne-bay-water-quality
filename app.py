@@ -12,6 +12,7 @@ If that doesn't work, try:
 import io
 from pathlib import Path
 
+import numpy as np  # math for the track-length calculation
 import pandas as pd  # data manipulation
 import plotly.express as px  # data visualization
 import streamlit as st
@@ -221,6 +222,52 @@ def render_data_quality(negative_counts: dict[str, int], hidden: bool) -> None:
                f"These values are physically impossible. {action}")
 
 
+def track_length_m(df: pd.DataFrame) -> float:
+    """Approximate distance traveled along the GPS track, in meters.
+
+    The survey covers a few hundred meters, so treating the Earth as flat
+    between consecutive readings is accurate enough.
+    """
+    earth_radius_m = 6_371_000
+    lat = np.radians(df["Latitude"])
+    lon = np.radians(df["Longitude"])
+    north = lat.diff() * earth_radius_m
+    east = lon.diff() * earth_radius_m * np.cos(lat)
+    return float(np.sqrt(north**2 + east**2).sum())
+
+
+def render_overview_tab(df: pd.DataFrame) -> None:
+    """Explain the dataset and app, and show headline numbers."""
+    st.subheader("About this survey")
+    st.markdown(
+        "An autonomous survey vehicle traveled a looping route in **Biscayne Bay, "
+        "Florida** (near Haulover Inlet) on **February 4, 2022**, logging its "
+        "position and water conditions about once per second. A water-quality "
+        "sonde on board measured temperature, salinity, dissolved oxygen, pH and "
+        "more, while sonar measured the depth of the water below the vehicle.")
+
+    st.subheader("At a glance")
+    st.caption("These numbers reflect the time range selected in the sidebar.")
+    row1 = st.columns(3)
+    row1[0].metric("Readings", f"{len(df):,}")
+    row1[1].metric("Duration", f"{df['Elapsed (min)'].max() - df['Elapsed (min)'].min():.1f} min")
+    row1[2].metric("Distance traveled", f"{track_length_m(df):,.0f} m")
+    row2 = st.columns(3)
+    row2[0].metric("Avg. water temperature", f"{df['Temp C'].mean():.2f} °C")
+    row2[1].metric("Avg. salinity", f"{df['Salinity (ppt)'].mean():.1f} ppt")
+    row2[2].metric("Water depth range",
+                   f"{df['Total Water Column (m)'].min():.1f}–{df['Total Water Column (m)'].max():.1f} m")
+
+    st.subheader("How to use this app")
+    st.markdown(
+        "- **Sidebar → Time Range:** narrow the analysis to part of the survey.\n"
+        "- **Sidebar → Data Quality:** choose whether to hide impossible negative sensor readings.\n"
+        "- **Sidebar → Upload:** load your own CSV in the same format as the original survey file.\n"
+        "- **Data:** pick which columns to view and see summary statistics.\n"
+        "- **Charts:** plot any water-quality parameter over time and compare temperature, salinity and depth.\n"
+        "- **Maps:** see the vehicle's route on a map, colored by water temperature. Hover a point for details.")
+
+
 def render_data_tab(df: pd.DataFrame) -> None:
     """Show the raw data table and descriptive statistics for chosen columns."""
     # Start with position, time and the water-quality readings; the user can
@@ -352,7 +399,9 @@ def main() -> None:
         st.warning("The selected time range has too few readings to plot. Widen it in the sidebar.")
         return
 
-    tables, plots, maps = st.tabs(["Data", "Charts", "Maps"])
+    overview, tables, plots, maps = st.tabs(["Overview", "Data", "Charts", "Maps"])
+    with overview:
+        render_overview_tab(df)
     with tables:
         render_data_tab(df)
     with plots:
