@@ -9,6 +9,7 @@ If that doesn't work, try:
     python -m streamlit run app.py
 """
 
+import io
 from pathlib import Path
 
 import pandas as pd  # data manipulation
@@ -37,6 +38,11 @@ WATER_QUALITY_PARAMS = {
 }
 
 
+# Columns the charts and map can't work without. An uploaded CSV must have
+# all of them, or the app falls back to the default dataset.
+REQUIRED_COLUMNS = ["Time", "Latitude", "Longitude", "Temp C",
+                    "Salinity (ppt)", "Total Water Column (m)"]
+
 # Sensors write this value when they have no reading (e.g. "DVL-Depth (m)").
 PLACEHOLDER_VALUE = 9999.99
 
@@ -55,11 +61,13 @@ def label(column: str) -> str:
 # ---------------------------------------------------------------------------
 
 @st.cache_data
-def load_data(source) -> pd.DataFrame:
-    """Read a CSV from a file path or an uploaded file.
+def load_data(source: Path | bytes) -> pd.DataFrame:
+    """Read a CSV from a file path or from an uploaded file's raw bytes.
 
     Cached so the file is only parsed once instead of on every widget change.
     """
+    if isinstance(source, bytes):
+        source = io.BytesIO(source)
     return pd.read_csv(source)
 
 
@@ -112,13 +120,33 @@ def hide_negative_readings(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def validate_upload(uploaded_file) -> pd.DataFrame | None:
+    """Read and check an uploaded CSV.
+
+    Returns the cleaned data, or None after showing an error message if the
+    file can't be read or is missing columns the charts depend on.
+    """
+    try:
+        df = clean_data(load_data(uploaded_file.getvalue()))
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError):
+        st.error(f"**Couldn't read `{uploaded_file.name}`.** Make sure it's a "
+                 "comma-separated text file. Showing the default dataset instead.")
+        return None
+
+    missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+    if missing:
+        st.error(f"**`{uploaded_file.name}` is missing required columns:** "
+                 f"{', '.join(missing)}. Showing the default dataset instead.")
+        return None
+    return df
+
+
 def get_data(uploaded_file) -> pd.DataFrame:
-    """Return the uploaded dataset if there is one, otherwise the default CSV."""
-    if uploaded_file is not None:
-        df = load_data(uploaded_file)
-    else:
-        df = load_data(DATA_PATH)
-    return add_elapsed_time(clean_data(df))
+    """Return the uploaded dataset if it is valid, otherwise the default CSV."""
+    df = validate_upload(uploaded_file) if uploaded_file is not None else None
+    if df is None:
+        df = clean_data(load_data(DATA_PATH))
+    return add_elapsed_time(df)
 
 
 def get_plottable_params(df: pd.DataFrame) -> list[str]:
